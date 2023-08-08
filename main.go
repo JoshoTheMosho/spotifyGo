@@ -2,10 +2,12 @@ package main
 
 import (
 	"encoding/json"
+	//"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/sessions"
 	"github.com/joho/godotenv"
 	"io"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"net/url"
@@ -38,11 +40,28 @@ func main() {
 	router.GET("/spotifyGo", func(c *gin.Context) {
 		// Determine the user's authentication status
 		isAuthenticated := isAuthenticated(c)
+		userProfile := getUserProfile(c)
 
 		// Render a template with conditional content
 		c.HTML(http.StatusOK, "spotifyGo.tmpl", gin.H{
-			"title":           "spotifyGo",
+			"title":           "spotifyGo ",
 			"IsAuthenticated": isAuthenticated,
+			"username":        userProfile.DisplayName,
+			"profilePic":      userProfile.Images[0].URL,
+		})
+	})
+
+	router.GET("/spotifyGo/login", func(c *gin.Context) {
+		// Determine the user's authentication status
+		isAuthenticated := isAuthenticated(c)
+		userProfile := getUserProfile(c)
+
+		// Render a template with conditional content
+		c.HTML(http.StatusOK, "login.tmpl", gin.H{
+			"title":           "spotifyGo Login",
+			"IsAuthenticated": isAuthenticated,
+			"username":        userProfile.DisplayName,
+			"profilePic":      userProfile.Images[0].URL,
 		})
 	})
 
@@ -95,7 +114,7 @@ func handleCallback(c *gin.Context) {
 	log.Println("Successfully stored session")
 
 	// Redirect to the main page
-	c.Redirect(http.StatusSeeOther, "/spotifyGo") // Replace "/" with the actual URL of your main page
+	c.Redirect(http.StatusSeeOther, "/spotifyGo/login") // Replace "/" with the actual URL of your main page
 }
 
 type TokenResponse struct {
@@ -154,6 +173,7 @@ func exchangeCodeForTokens(c *gin.Context, code string) (*TokenResponse, error) 
 }
 
 func isAuthenticated(c *gin.Context) bool {
+	log.Println("Checking if authenticated")
 	// Return true if authenticated, false otherwise
 	session, _ := store.Get(c.Request, "spotifyGo-session")
 
@@ -161,4 +181,54 @@ func isAuthenticated(c *gin.Context) bool {
 	accessToken := session.Values["access_token"]
 	log.Println(accessToken)
 	return accessToken != nil
+}
+
+type UserProfile struct {
+	DisplayName string `json:"display_name"`
+	Images      []struct {
+		URL string `json:"url"`
+	} `json:"images"`
+}
+
+func getUserProfile(c *gin.Context) *UserProfile {
+	session, err := store.Get(c.Request, "spotifyGo-session")
+	if err != nil {
+		return nil
+	}
+
+	apiUrl := "https://api.spotify.com/v1/me"
+	accessToken, ok := session.Values["access_token"].(string)
+	if !ok {
+		return nil
+	}
+
+	req, err := http.NewRequest("GET", apiUrl, nil)
+	if err != nil {
+		return nil
+	}
+
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil
+	}
+
+	var userProfile UserProfile
+	err = json.Unmarshal(body, &userProfile)
+	if err != nil {
+		return nil
+	}
+	return &userProfile
 }
